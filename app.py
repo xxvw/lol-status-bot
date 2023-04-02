@@ -56,15 +56,16 @@ class BuildModal(Modal):
             max_length=32,
             custom_id="campion",
             style=TextStyle.short,
+            required=True
         )
         self.lane = TextInput(
             label="ロール（略語可）",
-            placeholder="ロールを入力してください（オプション）",
+            placeholder="ロールを入力してください",
             min_length=1,
             max_length=32,
             custom_id="lane",
             style=TextStyle.short,
-            required=False
+            required=True
         )
         self.add_item(self.campion)
         self.add_item(self.lane)
@@ -88,7 +89,7 @@ class BuildModal(Modal):
 
 def getBuild(campion, lane):
     if lane == "":
-            lane = ""
+            return discord.Embed(title="エラー", description="ロールが見つかりませんでした。", color=0xff0000)
     else:
         maps = {
             "top/": ["トップ", "top"],
@@ -97,22 +98,42 @@ def getBuild(campion, lane):
             "adc/": ["adcarry", "adc", "ad"],
             "support/": ["サポート", "support", "sup", "sp"]
         }
+        lane_flag = False
+        lane_jp = ""
         for key in maps:
             if lane.lower() in maps[key]:
                 lane = key
+                lane_flag = True
                 break
+        if not lane_flag:
+            return discord.Embed(title="エラー", description="ロールが見つかりませんでした。", color=0xff0000)
+        
+        mps = {
+            "top": "トップ",
+            "jungle": "ジャングル",
+            "mid": "ミッド",
+            "adc": "ADC",
+            "support": "サポート"
+        }
+        lane_jp = mps[lane[:-1]]
+
     url = 'http://ddragon.leagueoflegends.com/cdn/' + vcs + '/data/ja_JP/champion.json';
     response = requests.get(url).json()["data"]
+    champ_flag = False
     for champion in response:
         if response[champion]["name"] == campion:
             campion = champion
+            champ_flag = True
             break
         elif champion.lower() == campion.lower():
             campion = champion
+            champ_flag = True
             break
+    if not champ_flag:
+        return discord.Embed(title="エラー", description="チャンピオンが見つかりませんでした。", color=0xff0000)
     url = 'http://ddragon.leagueoflegends.com/cdn/' + vcs + '/data/ja_JP/champion/' + campion + '.json'
     response = requests.get(url).json()["data"][campion]
-    embed = discord.Embed(title=response["name"], description=response["title"], color=0x00ff00)
+    embed = discord.Embed(title=response["name"] + " / " + lane_jp, description=response["title"], color=0x00ff00)
     embed.set_thumbnail(url='http://ddragon.leagueoflegends.com/cdn/' + vcs + '/img/champion/' + campion + '.png')
     embed.add_field(name="ロール", value=response["tags"][0], inline=True)
 
@@ -189,7 +210,7 @@ def getBuild(campion, lane):
 @client.event
 async def on_ready():
     print('We have logged in as {0.user}'.format(client))
-    await client.change_presence(activity=discord.Game(name="/lol <name> [region]"))
+    await client.change_presence(activity=discord.Game(name="/lol or /build"))
     print('Ready!')
     await tree.sync()
 
@@ -217,10 +238,10 @@ async def build(interaction: Interaction):
 async def lol(ctx, name: str, region: str = "jp1"):
     await ctx.response.defer()
     suffix = ".api.riotgames.com"
-    version = getDDragonVersion();
     url = "https://" + region + suffix + "/lol/summoner/v4/summoners/by-name/" + name + "?api_key=" + token_riot
     icon_id = 0
     response = requests.get(url)
+    # print(url)
     if response.status_code == 200:
         data = response.json()
         summoner_id = data["id"]
@@ -229,7 +250,8 @@ async def lol(ctx, name: str, region: str = "jp1"):
         icon_id = str(data["profileIconId"])
         url = "https://" + region + suffix + "/lol/league/v4/entries/by-summoner/" + summoner_id + "?api_key=" + token_riot
         response = requests.get(url)
-        icon_url = 'http://ddragon.leagueoflegends.com/cdn/' + version + '/img/profileicon/' + icon_id + '.png'
+        icon_url = 'http://ddragon.leagueoflegends.com/cdn/' + vcs + '/img/profileicon/' + icon_id + '.png'
+        # print(icon_url)
         if response.status_code == 200:
             data = response.json()
             if len(data) == 0:
@@ -248,19 +270,20 @@ async def lol(ctx, name: str, region: str = "jp1"):
                 win_rate = int(wins / (wins + losses) * 100)
                 embed = discord.Embed(title=summoner_name, description=tier + " " + rank + " " + str(lp) + "LP", color=0x00ff00)
                 embed.set_thumbnail(url=icon_url)
-                footer_text = "created by y-#1234"
+                footer_text = "Created by y-#1234"
                 embed.set_footer(text=footer_text)
                 embed.add_field(name="Level", value=summoner_level, inline=True)
                 embed.add_field(name="Win Rate (Rank)", value=str(win_rate) + "%", inline=True)
 
                 url_m = 'https://' + region + suffix + '/lol/champion-mastery/v4/champion-masteries/by-summoner/' + summoner_id + '?api_key=' + token_riot
                 response_m = requests.get(url_m)
+                # print(url_m)
                 if response_m.status_code == 200:
                     # three most played champions
                     data_m = response_m.json()
                     txt = ""
                     masteries = []
-                    url_c = 'http://ddragon.leagueoflegends.com/cdn/' + version + '/data/ja_JP/champion.json'
+                    url_c = 'http://ddragon.leagueoflegends.com/cdn/' + vcs + '/data/ja_JP/champion.json'
                     response_c = requests.get(url_c)
                     for i in range(10):
                         if i >= len(data_m):
@@ -287,13 +310,15 @@ async def lol(ctx, name: str, region: str = "jp1"):
                     
                 await ctx.followup.send(embed=embed)
         else:
+            # print('error 1')
             await ctx.followup.send("エラーが発生しました。")
     else:
+        # print('error 2')
         await ctx.followup.send("エラーが発生しました。")
 
 file = open("token.txt", "r")
-token_discord = file.readline().split(":")[1]
-token_riot = file.readline().split(":")[1]
+token_discord = file.readline().split(": ")[1]
+token_riot = file.readline().split(": ")[1]
 file.close()
 
 client.run(token_discord)
